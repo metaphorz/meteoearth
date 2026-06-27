@@ -87,7 +87,7 @@ function fmtRow(name, sample, windLevel) {
       `${sample.speed.toFixed(1)} m/s ${compass(sample.direction)} (${sample.direction.toFixed(0)}°)`];
   }
   if (name === "tmp_2m")
-    return ["Temp", `${sample.value.toFixed(1)} °C`];
+    return ["Temp", `${sample.value.toFixed(1)} °C (${(sample.value * 9 / 5 + 32).toFixed(1)} °F)`];
   if (name === "rh_2m")
     return ["RH",   `${sample.value.toFixed(0)} %`];
   if (name === "mslp")
