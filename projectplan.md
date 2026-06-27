@@ -111,17 +111,17 @@ meteoearth/
 - [x] 4.3 Smoke test: refresh data, Selenium re-runs all checks, snapshots
       saved.
 
-## Phase 5 — Automated refresh via GitHub Actions (future)
-- [ ] 5.1 Initialise git repo, push to GitHub.
+## Phase 5 — Automated refresh via GitHub Actions (DONE)
+- [x] 5.1 Initialise git repo, push to GitHub
+      (`https://github.com/metaphorz/meteoearth`).
 - [x] 5.2 Workflow `.github/workflows/deploy.yml`: 6 h cron (+ push +
       manual dispatch) refreshes the GFS data in CI (micromamba/conda-forge
       eccodes) and deploys the static globe to Pages as an artifact — data is
       built fresh each run, never committed back. Root redirect → the globe.
-- [ ] 5.2x (superseded) Workflow on a 6 h cron that runs
-      the pipeline and commits/pushes the regenerated `data/` files (or
-      uploads them to a release / Pages artifact).
-- [ ] 5.3 Serve the frontend from GitHub Pages so the site auto-updates
-      whenever the workflow finishes.
+- [x] 5.3 Served from GitHub Pages (Actions source) at
+      `https://metaphorz.github.io/meteoearth/`. First run green: build 42 s,
+      deploy 9 s; live data confirmed. Auto-refreshes every 6 h — no more
+      manual `./refresh-data.sh`.
 
 ## How the user will run it
 After Phase 1 + 2 land:
