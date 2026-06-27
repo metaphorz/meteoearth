@@ -1,0 +1,28 @@
+{
+  "variable": "wind_10m",
+  "label": "10 m wind",
+  "units": "m/s",
+  "kind": "vector",
+  "imageType": "VECTOR",
+  "imageUnscale": [
+    -50.0,
+    50.0
+  ],
+  "run_time": "2026-06-27T12:00:00Z",
+  "valid_time": "2026-06-27T12:00:00Z",
+  "width": 720,
+  "height": 361,
+  "bounds": [
+    -180.0,
+    -90.0,
+    180.0,
+    90.0
+  ],
+  "palette": [],
+  "stats": {
+    "u10_min": -20.397415161132812,
+    "v10_min": -20.397912979125977,
+    "u10_max": 22.792585372924805,
+    "v10_max": 25.892087936401367
+  }
+}

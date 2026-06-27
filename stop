@@ -1,0 +1,19 @@
+#!/usr/bin/env zsh
+# Stop the local static server started by ./start.
+set -e
+cd "$(dirname "$0")"
+
+PIDFILE=".server.pid"
+
+if [[ -f "$PIDFILE" ]]; then
+  PID=$(cat "$PIDFILE")
+  if kill -0 "$PID" 2>/dev/null; then
+    kill "$PID"
+    echo "Stopped server (pid $PID)"
+  else
+    echo "PID file present but process $PID not running"
+  fi
+  rm -f "$PIDFILE"
+else
+  echo "No server PID file — nothing to stop"
+fi

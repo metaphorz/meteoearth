@@ -1,0 +1,45 @@
+#!/usr/bin/env zsh
+# Launch a local static server so the frontend can fetch /data/* and open it.
+set -e
+cd "$(dirname "$0")"
+
+PORT=5862
+PIDFILE=".server.pid"
+URL="http://localhost:${PORT}/frontend/index.html"
+
+if [[ ! -x venv/bin/python ]]; then
+  echo "venv/bin/python not found — run refresh-data.sh once or recreate the venv."
+  exit 1
+fi
+if [[ ! -f data/wind_10m.png ]]; then
+  echo "Note: data/wind_10m.png is missing. Run ./refresh-data.sh first."
+fi
+
+# Kill any pre-existing process holding our port (own PID file or otherwise).
+if [[ -f "$PIDFILE" ]]; then
+  OLD_PID=$(cat "$PIDFILE")
+  if kill -0 "$OLD_PID" 2>/dev/null; then
+    echo "Stopping previous server (pid $OLD_PID)..."
+    kill "$OLD_PID" 2>/dev/null || true
+    sleep 0.5
+  fi
+  rm -f "$PIDFILE"
+fi
+PORT_PIDS=$(lsof -ti :${PORT} 2>/dev/null || true)
+if [[ -n "$PORT_PIDS" ]]; then
+  echo "Port ${PORT} held by: $PORT_PIDS — killing..."
+  echo "$PORT_PIDS" | xargs kill -9 2>/dev/null || true
+  sleep 0.5
+fi
+
+venv/bin/python -m http.server "$PORT" >/dev/null 2>&1 &
+echo $! > "$PIDFILE"
+sleep 0.5
+if ! kill -0 "$(cat $PIDFILE)" 2>/dev/null; then
+  echo "Failed to start server."
+  rm -f "$PIDFILE"
+  exit 1
+fi
+echo "Started server (pid $(cat $PIDFILE)) on port ${PORT}"
+echo "Opening $URL"
+open "$URL"

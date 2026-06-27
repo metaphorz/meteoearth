@@ -1,0 +1,17 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Local server
+.server.pid
+
+# Raw GFS downloads (large, regenerable via ./refresh-data.sh)
+data/raw/
+
+# Selenium test artifacts (large screenshots + logs, regenerable)
+tests/auto/*.png
+tests/auto/*.log
+
+# macOS
+.DS_Store
