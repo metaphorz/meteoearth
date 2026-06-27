@@ -1,0 +1,90 @@
+name: Refresh GFS data and deploy to Pages
+
+# Rebuilds the data layers from the latest GFS cycle and deploys the static
+# globe to GitHub Pages. The data is generated fresh in CI and shipped as the
+# Pages artifact, so it never gets committed back to the repo (no history bloat).
+
+on:
+  # GFS cycles (00/06/12/18 UTC) publish ~3.5-4.5h later; run a bit after that.
+  schedule:
+    - cron: "0 0,6,12,18 * * *"
+  workflow_dispatch: {}      # allow manual "Run workflow" from the Actions tab
+  push:
+    branches: [main]         # deploy on every push to main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once; let an in-progress one finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # conda-forge eccodes + cfgrib is the reliable way to decode GRIB2 in CI.
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: gfs
+          create-args: >-
+            python=3.11
+            eccodes
+            cfgrib
+            xarray
+            numpy
+            pillow
+            requests
+          init-shell: bash
+
+      - name: Fetch latest GFS cycle and encode layers
+        shell: bash -el {0}
+        run: |
+          python pipeline/fetch_gfs.py
+          python pipeline/encode.py
+          echo "--- generated data ---"
+          ls -lh data/*.png data/*.json
+
+      - name: Assemble static site
+        run: |
+          mkdir -p _site/frontend _site/data
+          cp -r frontend/* _site/frontend/
+          cp data/*.png data/*.json _site/data/
+          touch _site/.nojekyll
+          # Root redirect so the site URL opens the globe directly.
+          cat > _site/index.html <<'HTML'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta http-equiv="refresh" content="0; url=frontend/index.html">
+            <title>meteoearth</title>
+            <link rel="canonical" href="frontend/index.html">
+          </head>
+          <body>
+            <p>Redirecting to <a href="frontend/index.html">meteoearth</a>…</p>
+          </body>
+          </html>
+          HTML
+          echo "--- _site contents ---"
+          find _site -maxdepth 2 -type f | sort
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

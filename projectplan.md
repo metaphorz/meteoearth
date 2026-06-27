@@ -113,7 +113,11 @@ meteoearth/
 
 ## Phase 5 — Automated refresh via GitHub Actions (future)
 - [ ] 5.1 Initialise git repo, push to GitHub.
-- [ ] 5.2 Workflow `.github/workflows/refresh.yml` on a 6 h cron that runs
+- [x] 5.2 Workflow `.github/workflows/deploy.yml`: 6 h cron (+ push +
+      manual dispatch) refreshes the GFS data in CI (micromamba/conda-forge
+      eccodes) and deploys the static globe to Pages as an artifact — data is
+      built fresh each run, never committed back. Root redirect → the globe.
+- [ ] 5.2x (superseded) Workflow on a 6 h cron that runs
       the pipeline and commits/pushes the regenerated `data/` files (or
       uploads them to a release / Pages artifact).
 - [ ] 5.3 Serve the frontend from GitHub Pages so the site auto-updates
