@@ -151,6 +151,18 @@ loaded UMD bundle) — no new pipeline work, no custom extrema math.
       vortex centers and that hovering a glyph shows the detail badge.
       (`tests/auto/test_highlow.py` — PASS.)
 
+## Phase 7 — LaTeX manual (docs/)
+Match the `~/code/*/docs/` convention (e.g. nodez, mechanix): a `docs/manual.tex`
+article with a `figures/` subdir, figures captured via Selenium, compiled to
+`docs/manual.pdf`.
+- [x] 7.1 `docs/capture_figures.py`: Selenium driver that loads the app and
+      saves crisp full-window PNGs of key states to `docs/figures/`
+      (overview, H/L overlay, H/L hover, temp, PWAT, cloud, jet, pin).
+- [x] 7.2 `docs/manual.tex`: user+developer manual, figures referenced before
+      they appear, `\author{Paul Fishwick and Claude Code}`.
+- [x] 7.3 `docs/build.sh`: capture figures + run pdflatex twice → `manual.pdf`.
+- [x] 7.4 Build the PDF and verify it compiles with all figures embedded.
+
 ## Review
 
 ### Phase 6 — H/L pressure-center overlay (done)

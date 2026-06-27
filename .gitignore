@@ -13,5 +13,11 @@ data/raw/
 tests/auto/*.png
 tests/auto/*.log
 
+# LaTeX build artifacts (keep manual.tex, manual.pdf, figures/)
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
+
 # macOS
 .DS_Store
