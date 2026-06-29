@@ -6,8 +6,9 @@ __pycache__/
 # Local server
 .server.pid
 
-# Raw GFS downloads (large, regenerable via ./refresh-data.sh)
-data/raw/
+# Generated model data (large, regenerable via ./refresh-data.sh; CI rebuilds
+# it fresh and ships it as the Pages artifact, so it's never committed).
+data/
 
 # Selenium test artifacts (large screenshots + logs, regenerable)
 tests/auto/*.png

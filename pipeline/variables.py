@@ -1,11 +1,15 @@
-"""Registry of GFS variables we ingest.
+"""Canonical variable registry — the source-independent view of what the
+frontend can display.
 
-Each entry describes:
-  - the NOMADS filter parameters for the subset download
-  - the cfgrib short_name(s) used to read u/v (vector) or scalar data
-  - an optional unit transform applied at decode time
-  - the encoding range used for byte packing in the PNG
-  - presentation metadata consumed by the frontend (label, unit, palette stops)
+Each canonical variable carries only presentation/encoding metadata:
+  - display label, units, kind ("vector" | "scalar")
+  - the encode range used for byte-packing the PNG
+  - an optional unit transform from raw GRIB units to display units
+    (these are the same across GFS/ECMWF/GEM because all ship SI GRIB)
+  - palette stops for the legend/overlay
+
+How each *source* fetches and decodes a canonical variable lives in
+`sources.py`; not every source provides every canonical variable.
 """
 
 from __future__ import annotations
@@ -16,12 +20,10 @@ from typing import Callable, Optional
 
 @dataclass
 class Variable:
-    name: str                          # output stem, e.g. "wind_10m"
+    name: str                          # canonical stem, e.g. "wind_10m"
     label: str                         # human label
     units: str                         # display units
     kind: str                          # "vector" | "scalar"
-    nomads_params: dict                # filter_gfs_0p50.pl parameters (level + var flags)
-    grib_keys: tuple[str, ...]         # cfgrib short_names (1 for scalar, 2 for vector)
     encode_range: tuple[float, float]  # [vMin, vMax] used for byte packing
     transform: Optional[Callable] = None  # raw GRIB units -> display units
     palette: list[tuple[float, tuple[int, int, int]]] = field(default_factory=list)
@@ -33,24 +35,20 @@ VARIABLES: list[Variable] = [
         label="10 m wind",
         units="m/s",
         kind="vector",
-        nomads_params={
-            "var_UGRD": "on",
-            "var_VGRD": "on",
-            "lev_10_m_above_ground": "on",
-        },
-        grib_keys=("u10", "v10"),
         encode_range=(-50.0, 50.0),
+    ),
+    Variable(
+        name="wind_250mb",
+        label="250 hPa wind (jet stream)",
+        units="m/s",
+        kind="vector",
+        encode_range=(-150.0, 150.0),
     ),
     Variable(
         name="tmp_2m",
         label="2 m temperature",
         units="°C",
         kind="scalar",
-        nomads_params={
-            "var_TMP": "on",
-            "lev_2_m_above_ground": "on",
-        },
-        grib_keys=("t2m",),
         transform=lambda x: x - 273.15,  # K -> °C
         encode_range=(-60.0, 50.0),
         palette=[
@@ -69,11 +67,6 @@ VARIABLES: list[Variable] = [
         label="2 m relative humidity",
         units="%",
         kind="scalar",
-        nomads_params={
-            "var_RH": "on",
-            "lev_2_m_above_ground": "on",
-        },
-        grib_keys=("r2",),
         encode_range=(0.0, 100.0),
         palette=[
             (0.0,   (140, 90, 40)),
@@ -88,11 +81,6 @@ VARIABLES: list[Variable] = [
         label="Mean sea-level pressure",
         units="hPa",
         kind="scalar",
-        nomads_params={
-            "var_PRMSL": "on",
-            "lev_mean_sea_level": "on",
-        },
-        grib_keys=("prmsl",),
         transform=lambda x: x / 100.0,  # Pa -> hPa
         encode_range=(940.0, 1060.0),
         palette=[
@@ -108,11 +96,6 @@ VARIABLES: list[Variable] = [
         label="Total cloud cover",
         units="%",
         kind="scalar",
-        nomads_params={
-            "var_TCDC": "on",
-            "lev_entire_atmosphere": "on",
-        },
-        grib_keys=("tcc",),
         encode_range=(0.0, 100.0),
         palette=[
             (0.0,   (10, 18, 32)),
@@ -127,11 +110,6 @@ VARIABLES: list[Variable] = [
         label="Total precipitable water",
         units="kg/m²",
         kind="scalar",
-        nomads_params={
-            "var_PWAT": "on",
-            "lev_entire_atmosphere_(considered_as_a_single_layer)": "on",
-        },
-        grib_keys=("pwat",),
         encode_range=(0.0, 75.0),
         palette=[
             (0.0,  (60, 30, 20)),
@@ -143,17 +121,50 @@ VARIABLES: list[Variable] = [
         ],
     ),
     Variable(
-        name="wind_250mb",
-        label="250 hPa wind (jet stream)",
+        name="gust",
+        label="Wind gusts",
         units="m/s",
-        kind="vector",
-        nomads_params={
-            "var_UGRD": "on",
-            "var_VGRD": "on",
-            "lev_250_mb": "on",
-        },
-        grib_keys=("u", "v"),
-        encode_range=(-150.0, 150.0),
+        kind="scalar",
+        encode_range=(0.0, 50.0),
+        palette=[
+            (0.0,  (20, 30, 50)),
+            (10.0, (60, 130, 180)),
+            (20.0, (120, 200, 120)),
+            (30.0, (240, 200, 60)),
+            (40.0, (240, 110, 40)),
+            (50.0, (180, 0, 30)),
+        ],
+    ),
+    Variable(
+        name="prate",
+        label="Precipitation rate",
+        units="mm/h",
+        kind="scalar",
+        transform=lambda x: x * 3600.0,  # kg/m²/s -> mm/h
+        encode_range=(0.0, 25.0),
+        palette=[
+            (0.0,  (10, 18, 32)),
+            (0.5,  (70, 120, 200)),
+            (2.0,  (60, 180, 200)),
+            (6.0,  (120, 220, 120)),
+            (12.0, (240, 220, 80)),
+            (25.0, (220, 60, 60)),
+        ],
+    ),
+    Variable(
+        name="cape",
+        label="CAPE (thunderstorm potential)",
+        units="J/kg",
+        kind="scalar",
+        encode_range=(0.0, 5000.0),
+        palette=[
+            (0.0,    (12, 18, 30)),
+            (500.0,  (60, 110, 160)),
+            (1000.0, (110, 200, 140)),
+            (2000.0, (240, 210, 80)),
+            (3000.0, (240, 120, 50)),
+            (5000.0, (170, 0, 60)),
+        ],
     ),
 ]
 

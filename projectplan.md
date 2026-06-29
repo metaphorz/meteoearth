@@ -194,3 +194,128 @@ Notes:
   needed for that ask.
 - `radius` is a separation distance, not a prominence filter, so a few weak
   tropical highs (e.g. "H 1015") appear. Raise `radius` if you want fewer.
+
+---
+
+# Ventusky-comparison roadmap (PROPOSED — awaiting verification)
+
+Source: looked closely at ventusky.com (Selenium capture in
+`tests/auto/ventusky-01-default.png` + `ventusky-text.txt`). Two gaps vs.
+meteoearth stood out: (1) Ventusky is a **forecast** (time scrubber + history),
+meteoearth shows one analysis frame; (2) Ventusky plots **~14 layers**,
+meteoearth has 7. The phases below close those gaps, smallest-change-first.
+
+## Phase 8 — Forecast time dimension (highest value)
+Turn the single f000 snapshot into a scrubbable forecast. GFS already publishes
+the steps; this is the headline difference.
+
+Design decisions to confirm:
+- **Horizon & cadence**: default **f000 → f048, every 3 h = 17 steps**.
+  (To f120 every 3h = 41 steps if you want longer range — costs more data.)
+- **Data layout**: filename suffix per step, `data/<var>.f###.png` + `.json`,
+  with `index.json` gaining a `times: [{fhr, valid_time}, …]` array. Keeps the
+  flat `data/` dir; no per-var schema change.
+- **Loading**: lazy-load per timestep on demand (don't fetch all 17×7 PNGs up
+  front — that's ~23 MB). Cache decoded textures as the user scrubs.
+
+Tasks:
+- [x] 8.1 `fetch_gfs.py`: accept a list of forecast hours; download each
+      (var, fhr) to `data/raw/<var>.f###.grib2`; record `forecast_hours` in
+      `run.json`. Keep all-or-nothing per cycle.
+- [x] 8.2 `encode.py`: loop forecast hours, emit `data/<var>.f###.png/.json`;
+      write `times[]` into `index.json`.
+- [x] 8.3 `frontend/src/main.js`: lazy per-step texture loader keyed by fhr;
+      swap layer `image`s on step change.
+- [x] 8.4 `index.html` + main.js: time slider + Play/Prev/Next + valid-time
+      label (mirrors Ventusky's bottom bar).
+- [x] 8.5 Selenium test: scrub to a future step, assert overlay/wind/H-L and
+      the point readout all update; assert the valid-time label advances.
+
+Phase 8 DONE — `tests/auto/test_timebar.py` 7/7. Pipeline now fetches 17 steps
+(f000–f048/3h), encodes `<var>.f###.png/.json` + `times[]` in index.json;
+frontend lazy-loads/caches per step with a centered time bar (‹ ▶ › + slider +
+"Tue, Jun 30, 2:00 PM (+48 h)" label). Fix: `grib_filter` (stepType=instant) on
+`Variable` so cloud cover decodes at forecast hours.
+
+## Phase 9 — Additional data layers (low-risk, additive)
+Each new variable = one `variables.py` entry + one overlay button + one
+`fmtRow` line. No architecture change. GFS-available, globe-appropriate:
+- [x] 9.1 **Wind gusts** (`GUST`, surface) — scalar overlay.
+- [x] 9.2 **Precipitation rate** (`PRATE`) — instantaneous, works at f000;
+      true accumulated precip (`APCP`) needs Phase 8 (it's a step accumulation).
+- [x] 9.3 **CAPE** (`CAPE`) — thunderstorm-potential proxy (Ventusky's
+      "Thunderstorms").
+- [ ] 9.4 (deferred, user choice) **SST / snow depth** — low value in summer.
+- [ ] 9.5 (deferred) "Feels like" — derivable from tmp+rh+wind, no download.
+- Out of scope for GFS: Radar, Satellite, Air quality, Webcams (separate data
+  providers, not in GFS) — see Phase 10 on Ventusky's mixed sourcing.
+
+Phase 9 DONE — added `gust`, `prate` (→mm/h), `cape` to `variables.py`; refresh
+now ingests 10 vars × 17 steps (170 files). Frontend: overlay buttons
+gust/precip/CAPE + readout rows. `tests/auto/test_layers.py` 10/10; timebar 7/7
+and highlow tests still green (no regressions).
+
+## Controls panel redesign (user request)
+With 9 overlay buttons the lower-left panel had grown wide and overlapped the
+globe. Changes (CSS + small markup, `index.html`; toggle in `main.js`):
+- Each control group stacks its label over a wrapping `.btns` grid; panel
+  capped at ~230px so buttons flow into rows instead of one long line.
+- Added a `controls` header with a − / + **minimize** button that collapses to
+  a small "controls +" chip and restores on click (`wireControlsToggle`).
+- **Hover tooltips** (`title` attributes) on every overlay/wind/pressure button,
+  each slider row, and the time slider, explaining what each control does.
+
+## Phase 10 — Alternate models / sources (optional; global-only fit)
+Re: the regional models in Ventusky's list — meteoearth renders a **whole
+globe**, so regional/limited-area models (HRRR-USA, NAM, ICON-EU, HARMONIE,
+AROME-FR, ICON-DE/CH, MEPS-NO, NAM-Hawaii, HARMONIE-CAR) only paint a patch and
+would leave most of the sphere blank — poor fit unless we add a zoomed regional
+mode. The **global** models are the ones worth a selector:
+Current source = **NOAA GFS** (agency NOAA → center NCEP → model GFS), fetched
+via the **NOMADS** GRIB-subset filter endpoint. Phase 10 generalizes the
+pipeline to multiple global sources behind a model selector.
+
+### Source survey (researched 2026-06)
+| Source | Grid / format | Access | Fit |
+|---|---|---|---|
+| **GFS** (NOAA, current) | 0.5° lat-lon GRIB2, server-side var subset | NOMADS filter URL | baseline |
+| **ECMWF IFS open data** | 0.25° lat-lon GRIB2 | `ecmwf-opendata` pip client | clean — best 2nd model |
+| **GEM / GDPS** (ECCC, Canada) | 0.15° lat-lon GRIB2, per-var-per-step files | HTTP GET (Datamart) | manageable |
+| **ICON global** (DWD) | **icosahedral** grid, per-var `.grib2.bz2`, no subset | HTTP GET (opendata.dwd.de) | hard — needs regridding to lat-lon + bz2 + big files |
+
+**Variable coverage is NOT identical across models.** GFS gives all 10 of our
+fields; ECMWF open data exposes a different subset (2t, msl, 10u/10v, tp
+accumulated, tcwv≈PWAT, cape, gust, pressure-level u/v — but no native 2 m RH or
+instantaneous precip rate). So the selector must treat each model's variable
+list as its own manifest and grey out / hide overlays a model doesn't provide.
+
+### Architecture
+- [x] 10.0 Refactored `variables.py` → canonical registry; `sources.py` holds
+      per-source adapters (fetch + decode), `decode.py` generic, `build.py`
+      orchestrates, `encode.py` exposes `encode_field`.
+- [x] 10.0b Data layout `data/<model>/<var>.f###.png/.json`; `index.json` =
+      `{sources:[{id,label,resolution_deg,run_time,variables[],times[]}], default}`.
+- [x] 10.1 **ECMWF IFS open data** adapter via `ecmwf-opendata`, 0.25°.
+- [x] 10.2 **GEM / GDPS** adapter (ECCC, 0.15°) via the MSC hpfx file server.
+- [x] 10.3 Model-selector UI; switching reloads the model's path and greys out
+      overlays it doesn't provide (per-model variable manifest).
+- [x] 10.4 `tests/auto/test_models.py` — 20/20 (switch model, run-time updates,
+      unavailable overlays disabled, readouts work).
+- (Deferred) Regional high-res models — only with a zoomed regional viewport.
+
+Phase 10 DONE — three global models behind a selector. Coverage built:
+GFS = all 10 vars; ECMWF = wind_10m/wind_250mb/tmp_2m/mslp/cloud/pwat/gust;
+GEM = wind_10m/wind_250mb/tmp_2m/rh_2m/mslp/cloud/gust/cape. Network notes:
+added `get_grib` retry (transient ECMWF/GEM timeouts); ECMWF lacks plain
+cape/rh/instantaneous-precip, GEM lacks pwat/instantaneous-precip — handled by
+greying out. CI: `.github/workflows/deploy.yml` updated to `build.py` + per-model
+copy + `ecmwf-opendata` install + 30-min timeout (data still ships as the Pages
+artifact, so no git-history bloat).
+
+Note on Ventusky's sources: Ventusky does pull from **many providers**, not one
+— numerical models from NOAA (GFS/NAM/HRRR/NBM), ECMWF, DWD (ICON), Météo-France
+(AROME/Aladin), ECCC (GEM), the Met Office (UKMO), MET Norway (MEPS), plus
+**non-model** layers from other sources: radar mosaics, satellite imagery, air
+quality (e.g. CAMS), and user-contributed webcams. meteoearth today is
+single-source (NOAA GFS via NOMADS). Matching radar/satellite/AQ means wiring up
+those separate feeds, not just more GFS variables.

@@ -61,6 +61,19 @@ def toggle_highlow(driver) -> None:
         By.CSS_SELECTOR, '#controls button[data-toggle="highLow"]').click()
 
 
+def click_model(driver, sid: str) -> None:
+    driver.find_element(
+        By.CSS_SELECTOR, f'#controls button[data-model="{sid}"]').click()
+
+
+def set_step(driver, where: str) -> None:
+    """Move the forecast time slider to 'max' or '0' and fire its input event."""
+    driver.execute_script(
+        "const s=document.getElementById('tb-slider');"
+        "s.value = arguments[0]==='max' ? s.max : '0';"
+        "s.dispatchEvent(new Event('input',{bubbles:true}));", where)
+
+
 # Pick an on-screen H/L glyph and return its CSS pixel + central pressure.
 FIND_GLYPH_JS = """
 const lm = window.deckgl.layerManager;
@@ -152,6 +165,26 @@ def main() -> int:
             .context_click().perform()
         time.sleep(1.0)
         save(driver, "fig_pin")
+
+        # 9) Forecast time dimension: scrub to the +48 h step.
+        driver.find_element(By.ID, "pin-close").click()
+        set_step(driver, "max")
+        time.sleep(2)
+        save(driver, "fig_forecast")
+
+        # 10) CAPE overlay (thunderstorm potential) — a Phase-9 layer.
+        set_step(driver, "0")
+        click_overlay(driver, "cape")
+        time.sleep(2)
+        save(driver, "fig_cape")
+
+        # 11) Model selector: switch to ECMWF; RH/precip/CAPE grey out.
+        click_model(driver, "ecmwf")
+        WebDriverWait(driver, 20).until(
+            lambda d: "ECMWF" in d.find_element(By.ID, "status").text)
+        click_overlay(driver, "tmp_2m")
+        time.sleep(2)
+        save(driver, "fig_models")
 
         log.info("done — %d figures in %s", len(list(FIG_DIR.glob('*.png'))), FIG_DIR)
     finally:

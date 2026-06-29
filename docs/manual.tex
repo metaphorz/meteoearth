@@ -3,6 +3,7 @@
 \usepackage{graphicx}
 \usepackage{hyperref}
 \usepackage{booktabs}
+\usepackage{amssymb}
 \usepackage{xcolor}
 \usepackage{listings}
 \usepackage{textcomp}
@@ -21,7 +22,7 @@
 \hypersetup{colorlinks=true, urlcolor=blue, linkcolor=blue}
 
 \title{meteoearth User and Developer Manual\\[2pt]
-       \large An interactive globe for live NOAA GFS weather}
+       \large An interactive globe for live multi-model weather forecasts}
 \author{Paul Fishwick and Claude Code}
 \date{June 2026}
 
@@ -34,13 +35,15 @@
 \section{Introduction}
 
 meteoearth is a single-page, browser-based globe that visualizes live weather
-from the NOAA Global Forecast System (GFS). It renders animated wind particles,
-switchable scalar overlays (temperature, humidity, pressure, cloud, precipitable
-water), labeled high- and low-pressure centers, and point readouts on hover and
-right-click. It is modeled on the spirit of \texttt{earth.nullschool.net} but
-built on deck.gl's \texttt{GlobeView} with the WeatherLayers GL community
-edition, and backed by a small Python pipeline that turns GRIB2 model output
-into compact PNG textures.
+forecasts from three global models --- NOAA GFS, ECMWF IFS, and ECCC GEM ---
+chosen from a model selector. It renders animated wind particles, switchable
+scalar overlays (temperature, humidity, pressure, cloud, precipitable water,
+wind gusts, precipitation rate, and CAPE), labeled high- and low-pressure
+centers, and point readouts on hover and right-click. A time bar scrubs the
+forecast from the analysis hour out to two days ahead. It is modeled on the
+spirit of \texttt{earth.nullschool.net} but built on deck.gl's
+\texttt{GlobeView} with the WeatherLayers GL community edition, and backed by a
+small Python pipeline that turns GRIB2 model output into compact PNG textures.
 
 As shown in Figure~\ref{fig:overview}, the workspace is a draggable, zoomable
 globe. Wind flows as luminous particle trails; a control panel sits at lower
@@ -58,14 +61,16 @@ selects overlays, wind level, and particle appearance.}
 
 \subsection{Design Goals}
 \begin{itemize}
-  \item \textbf{Live data.} A single \texttt{refresh-data.sh} pulls the latest
-        GFS cycle and rebuilds every layer.
+  \item \textbf{Live, multi-model data.} A single \texttt{refresh-data.sh} pulls
+        the latest cycle of each global model and rebuilds every layer.
   \item \textbf{No build step.} The frontend is one HTML file plus one JS module,
         loading deck.gl and WeatherLayers from a CDN.
   \item \textbf{Compact transport.} Each variable is packed into a PNG and a
         small JSON of metadata, sampled client-side for instant readouts.
   \item \textbf{Reproducible provenance.} Every layer traces back to an explicit
-        GFS field and level (\S\ref{sec:data}).
+        model field and level (\S\ref{sec:data}).
+  \item \textbf{Honest coverage.} A model's overlays reflect exactly what it
+        publishes; fields it does not provide are greyed out rather than faked.
 \end{itemize}
 
 \section{Installation and Setup}
@@ -79,44 +84,64 @@ meteoearth has been developed and tested on macOS (Apple Silicon). Dependencies:
 
 The repository root contains the operational scripts:
 \begin{lstlisting}
-./refresh-data.sh   # pull latest GFS cycle + rebuild data/ (~30 s)
-./start             # serve http://localhost:5862 and open the globe
-./stop              # stop the local server
+./refresh-data.sh        # pull latest cycle of all models + rebuild data/
+./refresh-data.sh gfs    # just one model (fast)
+./start                  # serve http://localhost:5862 and open the globe
+./stop                   # stop the local server
 \end{lstlisting}
 
 \texttt{./start} launches a static HTTP server on port 5862 and opens
 \url{http://localhost:5862/frontend/index.html}. Run \texttt{./refresh-data.sh}
-at least once first so the \texttt{data/} directory is populated.
+at least once first so the \texttt{data/} directory is populated. A full refresh
+of all three models takes roughly ten to fifteen minutes (most of it fetching
+the higher-resolution ECMWF and GEM grids); a single-model refresh is much
+faster. The ECMWF client requires the \texttt{ecmwf-opendata} package
+(\texttt{pip install ecmwf-opendata}).
 
 \section{Data and Provenance}
 \label{sec:data}
 
-Every layer in meteoearth comes from one place: the NOAA NCEP Global Forecast
-System, retrieved as GRIB2 \emph{subsets} from the NOMADS filter endpoint. The
-download is driven entirely by \texttt{pipeline/fetch\_gfs.py}, which reads the
-variable registry in \texttt{pipeline/variables.py} and requests only the exact
-fields and levels needed (each subset is a few hundred KB rather than the full
-multi-hundred-MB GRIB file). The pipeline discovers the most recent published
-cycle (00/06/12/18\,UTC, padded for publication lag) and downloads the analysis
-hour (f000) at 0.5\textdegree{} global resolution.
+meteoearth ingests three global forecast models, each from its own provider:
+\begin{itemize}
+  \item \textbf{NOAA GFS} (0.5\textdegree{}) --- GRIB2 subsets from the NOMADS
+        filter endpoint; cycles 00/06/12/18\,UTC.
+  \item \textbf{ECMWF IFS} (0.25\textdegree{}) --- via the official
+        \texttt{ecmwf-opendata} client (CC\,BY\,4.0 open data).
+  \item \textbf{ECCC GEM / GDPS} (0.15\textdegree{}) --- single-message GRIB2
+        files from the Meteorological Service of Canada \texttt{hpfx} server;
+        cycles 00/12\,UTC.
+\end{itemize}
+All three are \emph{global} models, so they fill the entire globe; regional
+limited-area models (HRRR, AROME, etc.) are intentionally excluded because they
+would cover only a patch. For each model the pipeline downloads the analysis
+hour through a two-day forecast (f000--f048, every 3\,hours) at the model's
+native resolution.
 
-Table~\ref{tab:data} is the complete inventory of ingested data. It is not
-hand-written: it is generated by \texttt{docs/gen\_data\_sources.py}, which
-imports the same registry the downloader uses, so the manual cannot drift from
-what is actually fetched.
+The variable \emph{names}, labels, units, palettes, and encode ranges live in a
+single canonical registry, \texttt{pipeline/variables.py}; how each model fetches
+and decodes a given canonical variable lives in \texttt{pipeline/sources.py}. Not
+every model publishes every field, so coverage differs by model.
+Table~\ref{tab:sources} lists the models actually built and
+Table~\ref{tab:coverage} the per-model variable coverage. Neither is
+hand-written: both are generated by \texttt{docs/gen\_data\_sources.py} from
+\texttt{data/index.json} and the canonical registry, so the manual cannot drift
+from what is actually shipped.
 
 \input{data_sources.tex}
 
-After download, \texttt{pipeline/decode.py} reads each GRIB2 file with
-\texttt{cfgrib}, applies any unit transform (e.g.\ K\,$\to$\,\textdegree{}C,
-Pa\,$\to$\,hPa), and \texttt{pipeline/encode.py} linearly packs the values into
-an 8-bit PNG (the R/G channels carry $u$/$v$ for vector fields; a single channel
-carries scalars) alongside a JSON of bounds, the encode range, run/valid times,
-and a color palette. The provenance chain for any layer is therefore:
+For each model, \texttt{pipeline/sources.py} downloads the raw GRIB,
+\texttt{pipeline/decode.py} reads it with \texttt{cfgrib} and applies any unit
+transform (e.g.\ K\,$\to$\,\textdegree{}C, Pa\,$\to$\,hPa), and
+\texttt{pipeline/encode.py} linearly packs the values into an 8-bit PNG (the R/G
+channels carry $u$/$v$ for vector fields; a single channel carries scalars)
+alongside a JSON of bounds, the encode range, run/valid times, and a color
+palette. The whole run is orchestrated by \texttt{pipeline/build.py}, which also
+writes \texttt{data/index.json} (the list of sources, each with its run time,
+forecast steps, and available variables). The provenance chain for any layer is:
 \begin{center}
-NOMADS GFS subset $\rightarrow$ \texttt{decode.py} $\rightarrow$
-\texttt{encode.py} $\rightarrow$ \texttt{data/<layer>.png} + \texttt{.json}
-$\rightarrow$ frontend.
+model GRIB subset $\rightarrow$ \texttt{decode.py} $\rightarrow$
+\texttt{encode.py} $\rightarrow$ \texttt{data/<model>/<layer>.f<hhh>.png} +
+\texttt{.json} $\rightarrow$ frontend.
 \end{center}
 
 \section{Interface Tour}
@@ -126,11 +151,15 @@ Drag to rotate, scroll to zoom. The view is a true 3-D globe, so layers wrap
 seamlessly across the date line and converge correctly at the poles.
 
 \subsection{Control Panel}
-The lower-left panel (visible in every figure) has three button rows and four
-sliders:
+The lower-left panel (visible in every figure) carries a title bar with a
+\texttt{$-$/$+$} button that minimizes it to a small chip, then several button
+rows and four sliders. Every control has a hover tooltip explaining it.
 \begin{itemize}
+  \item \textbf{model} --- choose the source model (NOAA GFS, ECMWF IFS, ECCC
+        GEM); see \S\ref{sec:models}.
   \item \textbf{overlay} --- choose the scalar layer painted on the globe
-        (\texttt{none}, temp, RH, MSLP, cloud, PWAT). Mutually exclusive.
+        (\texttt{none}, temp, RH, MSLP, cloud, PWAT, gust, precip, CAPE).
+        Mutually exclusive; overlays the active model lacks are greyed out.
   \item \textbf{wind level} --- switch the particle field between 10\,m surface
         wind and the 250\,hPa jet stream.
   \item \textbf{pressure} --- the \texttt{H\,/\,L centers} toggle (on by
@@ -138,6 +167,8 @@ sliders:
   \item \textbf{sliders} --- trail length, speed, particle count, and line width
         for the wind animation.
 \end{itemize}
+A separate \textbf{time bar} runs along the bottom of the screen for scrubbing
+the forecast (\S\ref{sec:forecast}).
 
 \subsection{Hover and Pin Readouts}
 Moving the cursor over the globe shows a near-cursor badge with the latitude and
@@ -155,15 +186,70 @@ precipitable water) for the marked location.}
 \label{fig:pin}
 \end{figure}
 
+\section{Forecast Time Dimension}
+\label{sec:forecast}
+
+meteoearth is a forecast, not a single snapshot. For every model the pipeline
+ingests the analysis hour and the two-day forecast in 3-hour steps, and the
+\textbf{time bar} along the bottom of the screen scrubs through them. The
+\texttt{$\triangleright$} button plays the sequence; \texttt{$\langle$} and
+\texttt{$\rangle$} step one frame; the slider jumps to any step; and the label
+shows the valid time and lead (``analysis'' or ``$+N$\,h''). Steps are loaded
+lazily and cached, so the first pass animates as frames arrive and re-scrubbing
+is instant. Switching the overlay, wind level, pin, and pressure centers all
+follow the selected step. Figure~\ref{fig:forecast} shows the globe at the
+$+48$\,h step.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.92\textwidth]{fig_forecast.png}
+\caption{The forecast scrubbed to $+48$\,h. The time bar (bottom center) shows
+the valid time and lead; every layer and readout reflects the selected step.}
+\label{fig:forecast}
+\end{figure}
+
+\section{Multiple Models}
+\label{sec:models}
+
+The \textbf{model} row selects which global model supplies the data: NOAA GFS
+(0.5\textdegree{}), ECMWF IFS (0.25\textdegree{}), or ECCC GEM (0.15\textdegree{}).
+Switching models reloads the current step from that model and updates the run
+timestamp at upper left. Because the models publish different fields
+(Table~\ref{tab:coverage}), the overlay buttons reconcile to the active model:
+fields it does not provide are disabled and greyed out rather than fabricated.
+Figure~\ref{fig:models} shows ECMWF selected, where RH, precip, and CAPE are
+greyed because ECMWF open data does not publish them, while the finer
+0.25\textdegree{} grid is visible in the temperature field.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.92\textwidth]{fig_models.png}
+\caption{ECMWF IFS selected from the model row. The run timestamp updates and
+the overlays ECMWF lacks (RH, precip, CAPE) are greyed out. The temperature
+field shows the model's finer 0.25\textdegree{} resolution.}
+\label{fig:models}
+\end{figure}
+
 \section{Scalar Overlays}
 
-Selecting an overlay paints a GFS field on the globe with a per-variable palette
-and shows a matching colorbar legend at upper right. Two representative overlays
-are shown here. Temperature (Figure~\ref{fig:temp}) runs from deep violet
-(coldest) to dark red (hottest). Total precipitable water
-(Figure~\ref{fig:pwat}) reveals atmospheric rivers as bright moisture plumes.
-The cloud-cover overlay (not shown) renders a grayscale, satellite-like field,
-and MSLP is shown later with the pressure centers (Figure~\ref{fig:highlow}).
+Selecting an overlay paints a model field on the globe with a per-variable
+palette and shows a matching colorbar legend at upper right. Temperature
+(Figure~\ref{fig:temp}) runs from deep violet (coldest) to dark red (hottest).
+Total precipitable water (Figure~\ref{fig:pwat}) reveals atmospheric rivers as
+bright moisture plumes. CAPE (Figure~\ref{fig:cape}) highlights regions of
+convective instability --- a proxy for thunderstorm potential. The remaining
+overlays --- relative humidity, cloud cover (a grayscale, satellite-like field),
+wind gusts, and precipitation rate --- follow the same pattern, and MSLP is shown
+later with the pressure centers (Figure~\ref{fig:highlow}).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.92\textwidth]{fig_cape.png}
+\caption{CAPE (convective available potential energy). Bright regions flag
+convective instability and thunderstorm potential, concentrated over the warm,
+moist tropics and summer continents.}
+\label{fig:cape}
+\end{figure}
 
 \begin{figure}[h]
 \centering
@@ -238,24 +324,31 @@ overlay is on by default and can be toggled off from the control panel.
 
 \subsection{Pipeline (Python)}
 \begin{itemize}
-  \item \texttt{variables.py} --- the single registry of layers: NOMADS request
-        parameters, cfgrib keys, unit transforms, encode ranges, and palettes.
-  \item \texttt{fetch\_gfs.py} --- cycle discovery and per-variable GRIB2 subset
-        download from NOMADS.
-  \item \texttt{decode.py} --- GRIB2 $\rightarrow$ numpy via cfgrib, with unit
-        conversion.
+  \item \texttt{variables.py} --- the canonical registry of layers: labels,
+        units, kind, encode ranges, unit transforms, and palettes (source
+        independent).
+  \item \texttt{sources.py} --- one adapter per model (GFS, ECMWF, GEM): cycle
+        discovery, how to fetch each canonical variable, and which it supports.
+  \item \texttt{decode.py} --- generic GRIB2 $\rightarrow$ numpy via cfgrib,
+        handling one- or two-file vector fields.
   \item \texttt{encode.py} --- numpy $\rightarrow$ PNG (byte-packed) plus the
-        metadata JSON consumed by the frontend.
+        metadata JSON, via \texttt{encode\_field}.
+  \item \texttt{build.py} --- orchestrates fetch/decode/encode for each model and
+        forecast hour into \texttt{data/<model>/}, and writes
+        \texttt{data/index.json}.
 \end{itemize}
 
 \subsection{Frontend (deck.gl + WeatherLayers)}
-\texttt{frontend/src/main.js} loads every layer's PNG and JSON, then builds the
-deck.gl layer stack: an invisible pickable globe polygon (so hover fires
-everywhere), the optional scalar \texttt{RasterLayer}, a coastline
-\texttt{GeoJsonLayer}, the WeatherLayers \texttt{ParticleLayer} for wind, the
-\texttt{HighLowLayer} for pressure centers, and a pin marker. Point readouts are
-computed in JavaScript by sampling the in-memory PNG bytes and un-scaling them
-with each layer's \texttt{imageUnscale} range.
+\texttt{frontend/src/main.js} reads \texttt{data/index.json}, then lazily loads
+each forecast step's PNGs and JSON for the active model (cached per
+model/step). It builds the deck.gl layer stack: an invisible pickable globe
+polygon (so hover fires everywhere on the sphere), the optional scalar
+\texttt{RasterLayer}, a coastline \texttt{GeoJsonLayer}, the WeatherLayers
+\texttt{ParticleLayer} for wind, the \texttt{HighLowLayer} for pressure centers,
+and a pin marker. Switching model or step swaps the in-memory textures and
+rebuilds the stack; point readouts are computed in JavaScript by sampling the PNG
+bytes and un-scaling them with each layer's \texttt{imageUnscale} range. Hover
+and pin require an actual pick on the globe, so they stay silent off the sphere.
 
 \section{Testing and Figures}
 
@@ -267,10 +360,17 @@ and never hand-captured:
   \item \texttt{tests/auto/test\_highlow.py} --- verifies the pressure-center
         overlay: detection counts, glyph hover badge, toggle behavior, and that
         the point readout still carries pressure.
+  \item \texttt{tests/auto/test\_timebar.py} --- verifies the forecast time bar:
+        step count, scrubbing, and that readouts change between steps.
+  \item \texttt{tests/auto/test\_layers.py} --- verifies the gust, precip, and
+        CAPE overlays render with the right legends and readouts.
+  \item \texttt{tests/auto/test\_models.py} --- verifies the model selector:
+        run-time updates and that unavailable overlays are disabled per model.
   \item \texttt{docs/capture\_figures.py} --- drives the app through the states
         used for the figures in this manual and writes \texttt{docs/figures/}.
-  \item \texttt{docs/gen\_data\_sources.py} --- regenerates Table~\ref{tab:data}
-        from the live variable registry.
+  \item \texttt{docs/gen\_data\_sources.py} --- regenerates
+        Tables~\ref{tab:sources}--\ref{tab:coverage} from \texttt{data/index.json}
+        and the canonical registry.
 \end{itemize}
 
 The whole document, including refreshed figures and the data table, is rebuilt by
@@ -285,6 +385,15 @@ NOAA / NCEP, \emph{Global Forecast System (GFS)}.
 \bibitem{nomads}
 NOAA NOMADS, \emph{GFS 0.5\textdegree{} GRIB filter service}.
 \url{https://nomads.ncep.noaa.gov/}
+
+\bibitem{ecmwfopendata}
+ECMWF, \emph{Open Data --- real-time forecasts from IFS and AIFS} (CC\,BY\,4.0).
+\url{https://www.ecmwf.int/en/forecasts/datasets/open-data}
+
+\bibitem{gdps}
+Environment and Climate Change Canada, \emph{Global Deterministic Prediction
+System (GDPS), MSC Open Data}.
+\url{https://eccc-msc.github.io/open-data/msc-data/nwp_gdps/readme_gdps-datamart_en/}
 
 \bibitem{deckgl}
 deck.gl, \emph{GPU-powered, large-scale WebGL data visualization}.

@@ -11,8 +11,8 @@ if [[ ! -x venv/bin/python ]]; then
   echo "venv/bin/python not found — run refresh-data.sh once or recreate the venv."
   exit 1
 fi
-if [[ ! -f data/wind_10m.png ]]; then
-  echo "Note: data/wind_10m.png is missing. Run ./refresh-data.sh first."
+if [[ ! -f data/gfs/wind_10m.f000.png ]]; then
+  echo "Note: data/gfs/wind_10m.f000.png is missing. Run ./refresh-data.sh first."
 fi
 
 # Kill any pre-existing process holding our port (own PID file or otherwise).

@@ -1,21 +1,23 @@
-"""Decode a per-variable GRIB2 subset into numpy arrays."""
+"""Generic GRIB2 → numpy decoding, shared by every source.
+
+A canonical variable maps to one or two (file, cfgrib-key) pairs:
+  - scalar  → one pair
+  - vector  → two pairs (u, v), which may live in one file (GFS/ECMWF) or in
+    two separate files (GEM publishes WindU / WindV as distinct files).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Optional
 
 import numpy as np
 import xarray as xr
 
-from variables import Variable
-
-RAW_DIR = Path(__file__).resolve().parents[1] / "data" / "raw"
-
 
 @dataclass
 class DecodedField:
-    name: str
     kind: str                 # "vector" | "scalar"
     arrays: list[np.ndarray]  # length 1 (scalar) or 2 (vector u, v)
     lat: np.ndarray
@@ -24,41 +26,41 @@ class DecodedField:
     valid_time: str
 
 
-def load(var: Variable) -> DecodedField:
-    path = RAW_DIR / f"{var.name}.f000.grib2"
-    ds = xr.open_dataset(
+def _open(path: Path, grib_filter: dict) -> xr.Dataset:
+    return xr.open_dataset(
         path,
         engine="cfgrib",
-        backend_kwargs={"indexpath": ""},
+        backend_kwargs={"indexpath": "", "filter_by_keys": grib_filter},
     )
+
+
+def decode_grib(
+    pairs: list[tuple[Path, str]],
+    kind: str,
+    transform: Optional[Callable],
+    grib_filter: dict,
+) -> DecodedField:
+    """pairs: [(grib_path, cfgrib_var_key), ...] — 1 for scalar, 2 for vector."""
     arrays: list[np.ndarray] = []
-    for key in var.grib_keys:
+    lat = lon = None
+    run_time = valid_time = None
+    for path, key in pairs:
+        ds = _open(Path(path), grib_filter)
+        if key is None:                       # take the sole data variable
+            data_keys = list(ds.data_vars)
+            if len(data_keys) != 1:
+                raise ValueError(f"{path}: expected 1 data var, got {data_keys}")
+            key = data_keys[0]
         a = ds[key].values.astype(np.float32)
-        if var.transform is not None:
-            a = var.transform(a)
+        if transform is not None:
+            a = transform(a)
         arrays.append(a)
-
-    lat = ds["latitude"].values.astype(np.float32)
-    lon = ds["longitude"].values.astype(np.float32)
-    run_time = str(np.datetime_as_string(ds["time"].values, unit="s")) + "Z"
-    valid_time = str(np.datetime_as_string(ds["valid_time"].values, unit="s")) + "Z"
-
+        if lat is None:
+            lat = ds["latitude"].values.astype(np.float32)
+            lon = ds["longitude"].values.astype(np.float32)
+            run_time = str(np.datetime_as_string(ds["time"].values, unit="s")) + "Z"
+            valid_time = str(np.datetime_as_string(ds["valid_time"].values, unit="s")) + "Z"
     return DecodedField(
-        name=var.name, kind=var.kind, arrays=arrays,
-        lat=lat, lon=lon, run_time=run_time, valid_time=valid_time,
+        kind=kind, arrays=arrays, lat=lat, lon=lon,
+        run_time=run_time, valid_time=valid_time,
     )
-
-
-def main() -> int:
-    from variables import VARIABLES
-    for v in VARIABLES:
-        d = load(v)
-        a = d.arrays[0]
-        print(f"[decode] {v.name:10s} kind={v.kind:6s} "
-              f"shape={a.shape} dtype={a.dtype} "
-              f"min={a.min():.2f} max={a.max():.2f} units={v.units}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

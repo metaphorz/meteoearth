@@ -1,6 +1,8 @@
 #!/usr/bin/env zsh
-# Pull the latest GFS cycle and regenerate the data files the frontend reads.
-# Run this any time you want fresher data (NOAA publishes every 6 hours).
+# Pull the latest cycle for each global model and regenerate the data the
+# frontend reads. Pass source ids to limit (default: all).
+#   ./refresh-data.sh             # gfs + ecmwf + gem
+#   ./refresh-data.sh gfs         # just GFS (fast)
 set -e
 cd "$(dirname "$0")"
 
@@ -10,13 +12,11 @@ if [[ ! -d venv ]]; then
   exit 1
 fi
 
-echo "[refresh] fetching latest GFS cycle..."
-venv/bin/python pipeline/fetch_gfs.py
-
-echo "[refresh] encoding wind PNG + metadata..."
-venv/bin/python pipeline/encode.py
+echo "[refresh] building model data (${@:-all sources})..."
+venv/bin/python pipeline/build.py "$@"
 
 echo "[refresh] done."
 echo ""
 echo "Outputs:"
-ls -lh data/*.png data/*.json
+du -sh data/*/ 2>/dev/null
+ls -1 data/index.json

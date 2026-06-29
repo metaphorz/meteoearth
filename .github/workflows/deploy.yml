@@ -1,8 +1,9 @@
-name: Refresh GFS data and deploy to Pages
+name: Refresh model data and deploy to Pages
 
-# Rebuilds the data layers from the latest GFS cycle and deploys the static
-# globe to GitHub Pages. The data is generated fresh in CI and shipped as the
-# Pages artifact, so it never gets committed back to the repo (no history bloat).
+# Rebuilds the data layers from the latest GFS / ECMWF / GEM cycles and deploys
+# the static globe to GitHub Pages. The data is generated fresh in CI and
+# shipped as the Pages artifact, so it never gets committed back to the repo
+# (no history bloat).
 
 on:
   # GFS cycles (00/06/12/18 UTC) publish ~3.5-4.5h later; run a bit after that.
@@ -25,6 +26,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30        # 3 models fetch in ~10-15 min; cap so it can't hang
     steps:
       - uses: actions/checkout@v4
 
@@ -42,19 +44,27 @@ jobs:
             requests
           init-shell: bash
 
-      - name: Fetch latest GFS cycle and encode layers
+      - name: Install ECMWF open-data client
+        shell: bash -el {0}
+        run: pip install ecmwf-opendata
+
+      - name: Build data layers for all models (GFS, ECMWF, GEM)
         shell: bash -el {0}
         run: |
-          python pipeline/fetch_gfs.py
-          python pipeline/encode.py
+          python pipeline/build.py
           echo "--- generated data ---"
-          ls -lh data/*.png data/*.json
+          du -sh data/*/ ; cat data/index.json | python -c "import sys,json;d=json.load(sys.stdin);print('sources:',[s['id'] for s in d['sources']])"
 
       - name: Assemble static site
         run: |
           mkdir -p _site/frontend _site/data
           cp -r frontend/* _site/frontend/
-          cp data/*.png data/*.json _site/data/
+          # Ship per-model layers + the index, but never the raw GRIB cache.
+          cp data/index.json _site/data/
+          for d in data/*/; do
+            [ "$d" = "data/raw/" ] && continue
+            cp -r "$d" "_site/data/$(basename "$d")"
+          done
           touch _site/.nojekyll
           # Root redirect so the site URL opens the globe directly.
           cat > _site/index.html <<'HTML'

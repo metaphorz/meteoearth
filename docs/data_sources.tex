@@ -2,25 +2,47 @@
 \begin{table}[h]
 \centering
 \footnotesize
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}l p{2.6cm} l p{2.7cm} l l@{}}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}l p{3.0cm} l c l l@{}}
 \toprule
-\textbf{Layer} & \textbf{Quantity} & \textbf{NOMADS var} & \textbf{Level} & \textbf{GRIB key} & \textbf{Units} \\
+\textbf{Source} & \textbf{Model} & \textbf{Res.} & \textbf{Vars} & \textbf{Steps} & \textbf{Cycle} \\
 \midrule
-  \texttt{wind\_10m} & 10 m wind & \texttt{UGRD, VGRD} & 10 m above ground & \texttt{u10, v10} & m/s \\
-  \texttt{tmp\_2m} & 2 m temperature & \texttt{TMP} & 2 m above ground & \texttt{t2m} & \textdegree{}C \\
-  \texttt{rh\_2m} & 2 m relative humidity & \texttt{RH} & 2 m above ground & \texttt{r2} & \% \\
-  \texttt{mslp} & Mean sea-level pressure & \texttt{PRMSL} & mean sea level & \texttt{prmsl} & hPa \\
-  \texttt{cloud\_cover} & Total cloud cover & \texttt{TCDC} & entire atmosphere & \texttt{tcc} & \% \\
-  \texttt{pwat} & Total precipitable water & \texttt{PWAT} & entire atmosphere (single layer) & \texttt{pwat} & kg/m\textsuperscript{2} \\
-  \texttt{wind\_250mb} & 250 hPa wind (jet stream) & \texttt{UGRD, VGRD} & 250 mb & \texttt{u, v} & m/s \\
+  \texttt{gfs} & NOAA GFS & 0.5\textdegree{} & 10 & f000--f048/3h & \texttt{2026-06-28T18:00:00Z} \\
+  \texttt{ecmwf} & ECMWF IFS & 0.25\textdegree{} & 7 & f000--f048/3h & \texttt{2026-06-28T06:00:00Z} \\
+  \texttt{gem} & ECCC GEM & 0.15\textdegree{} & 8 & f000--f048/3h & \texttt{2026-06-28T12:00:00Z} \\
 \bottomrule
 \end{tabular}
-\caption{Every data layer ingested by meteoearth, generated directly from
-\texttt{pipeline/variables.py} by \texttt{docs/gen\_data\_sources.py}.
-All layers come from a single source: the NOAA NCEP GFS model, downloaded as
-GRIB2 subsets from the NOMADS filter endpoint
-\texttt{https://nomads.ncep.noaa.gov/cgi-bin/filter\_gfs\_0p50.pl} at 0.5\textdegree{} resolution, analysis hour f000.
-Current cycle: \texttt{2026-06-27T12:00:00Z}; global grid 720\,$\times$\,361.}
-\label{tab:data}
+\caption{The global forecast models meteoearth ingests, generated from
+\texttt{data/index.json} by \texttt{docs/gen\_data\_sources.py}. Each model
+is fetched independently from its own provider (NOMADS, ECMWF open data, and the
+MSC hpfx server) at its native resolution, for the analysis hour through a
+two-day forecast.}
+\label{tab:sources}
+\end{table}
+
+\begin{table}[h]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{@{}l p{3.2cm} l c c c@{}}
+\toprule
+\textbf{Layer} & \textbf{Quantity} & \textbf{Units} & \textbf{gfs} & \textbf{ecmwf} & \textbf{gem} \\
+\midrule
+  \texttt{wind\_10m} & 10 m wind & m/s & \checkmark & \checkmark & \checkmark \\
+  \texttt{wind\_250mb} & 250 hPa wind (jet stream) & m/s & \checkmark & \checkmark & \checkmark \\
+  \texttt{tmp\_2m} & 2 m temperature & \textdegree{}C & \checkmark & \checkmark & \checkmark \\
+  \texttt{rh\_2m} & 2 m relative humidity & \% & \checkmark & -- & \checkmark \\
+  \texttt{mslp} & Mean sea-level pressure & hPa & \checkmark & \checkmark & \checkmark \\
+  \texttt{cloud\_cover} & Total cloud cover & \% & \checkmark & \checkmark & \checkmark \\
+  \texttt{pwat} & Total precipitable water & kg/m\textsuperscript{2} & \checkmark & \checkmark & -- \\
+  \texttt{gust} & Wind gusts & m/s & \checkmark & \checkmark & \checkmark \\
+  \texttt{prate} & Precipitation rate & mm/h & \checkmark & -- & -- \\
+  \texttt{cape} & CAPE (thunderstorm potential) & J/kg & \checkmark & -- & \checkmark \\
+\bottomrule
+\end{tabular}
+\caption{Canonical layers and which models provide each one. Where a model does
+not publish a field (e.g.\ ECMWF open data has no plain CAPE or instantaneous
+precipitation, GEM no precipitable water), the corresponding overlay is greyed
+out when that model is selected.}
+\label{tab:coverage}
 \end{table}
