@@ -6,9 +6,12 @@ name: Refresh model data and deploy to Pages
 # (no history bloat).
 
 on:
-  # GFS cycles (00/06/12/18 UTC) publish ~3.5-4.5h later; run a bit after that.
+  # Run every 12h: GFS, ECMWF, and GEM all publish fresh 00/12 UTC cycles, so
+  # this catches new data for all three models (GEM only updates twice a day).
+  # Offset to ~07/19 UTC so all three providers (incl. slower ECMWF open data)
+  # have finished publishing their 00/12 UTC cycles.
   schedule:
-    - cron: "0 0,6,12,18 * * *"
+    - cron: "0 7,19 * * *"
   workflow_dispatch: {}      # allow manual "Run workflow" from the Actions tab
   push:
     branches: [main]         # deploy on every push to main
