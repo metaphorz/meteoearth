@@ -376,6 +376,32 @@ and never hand-captured:
 The whole document, including refreshed figures and the data table, is rebuilt by
 \texttt{docs/build.sh}.
 
+\section{Deployment}
+\label{sec:deploy}
+
+meteoearth is published as a static site on GitHub Pages by the workflow
+\texttt{.github/workflows/deploy.yml}. The workflow runs on three triggers: a
+push to \texttt{main}, a manual dispatch from the Actions tab, and a schedule.
+
+Crucially, the data is \emph{generated fresh in CI and shipped as the Pages
+artifact} --- it is never committed back to the repository. The job sets up an
+\texttt{eccodes}/\texttt{cfgrib} environment, installs \texttt{ecmwf-opendata},
+runs \texttt{pipeline/build.py} for all models, assembles \texttt{frontend/} and
+\texttt{data/} into \texttt{\_site/}, and uploads it. Consequently the large,
+fast-changing model PNGs (a few hundred MB per build) stay out of the git
+history; the repository tracks only source and the manual. A full multi-model
+build takes roughly twelve to fifteen minutes; because the repository is public,
+GitHub Actions minutes are free.
+
+\paragraph{Refresh schedule.}
+The scheduled run fires twice a day (\texttt{cron: "0 7,19 * * *"}, i.e.\ 07 and
+19\,UTC). All three models publish 00/12\,UTC cycles --- GFS and ECMWF more often,
+GEM only twice daily --- so a twelve-hour cadence catches a fresh cycle for every
+model while avoiding redundant rebuilds. The 07/19\,UTC offset gives the slowest
+provider (ECMWF open data) time to finish publishing; each adapter independently
+resolves its latest available cycle, so a run never blocks on a not-yet-published
+model. The workflow uses a \texttt{concurrency} group so deploys never overlap.
+
 \begin{thebibliography}{9}
 
 \bibitem{gfs}
