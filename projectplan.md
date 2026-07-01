@@ -400,3 +400,9 @@ red > 1013), so a weak low with a central pressure above 1013 hPa rendered as a
 - [x] 13.2 The H/L hover badge prepends the system name when the glyph falls in a
       named region. Verified with `tests/auto/verify_named_tooltip.py` (PASS —
       badge reads "Icelandic Low").
+- [x] 13.3 The Southern Ocean is a circumpolar trough (a belt of 3–6 cyclones),
+      so a single "Southern Ocean Low" label repeated across many centers. Split
+      into four longitude sectors that tile the full 360°: **Amundsen Sea Low**
+      (the recognized semi-permanent center), **Weddell Sea Low**, **South Indian
+      Ocean Low**, **Ross Sea Low** (wraps the dateline). Sector logic checked in
+      node against sample coords.

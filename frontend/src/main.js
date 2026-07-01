@@ -35,7 +35,13 @@ const NAMED_SYSTEMS = [
   { type: "L", name: "Aleutian Low",              lat: [45, 62],   lng: [160, -150] },
   { type: "L", name: "South Asian (Monsoon) Low", lat: [18, 35],   lng: [58, 82] },
   { type: "L", name: "Sonoran (SW-US) Heat Low",  lat: [28, 40],   lng: [-118, -105] },
-  { type: "L", name: "Southern Ocean Low",        lat: [-72, -52], lng: [-180, 180] },
+  // The Southern Ocean circumpolar trough is a belt of several lows, so it's
+  // split into named sectors (the Amundsen Sea Low is the recognized
+  // semi-permanent center). The four lng sectors tile the full 360°.
+  { type: "L", name: "Amundsen Sea Low",          lat: [-75, -50], lng: [-150, -60] },
+  { type: "L", name: "Weddell Sea Low",           lat: [-75, -50], lng: [-60, 30] },
+  { type: "L", name: "South Indian Ocean Low",    lat: [-75, -50], lng: [30, 120] },
+  { type: "L", name: "Ross Sea Low",              lat: [-75, -50], lng: [120, -150] },
   // Highs
   { type: "H", name: "Azores–Bermuda High",       lat: [22, 42],   lng: [-70, -8] },
   { type: "H", name: "North Pacific High",        lat: [25, 45],   lng: [-160, -120] },
