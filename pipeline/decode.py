@@ -60,6 +60,14 @@ def decode_grib(
             lon = ds["longitude"].values.astype(np.float32)
             run_time = str(np.datetime_as_string(ds["time"].values, unit="s")) + "Z"
             valid_time = str(np.datetime_as_string(ds["valid_time"].values, unit="s")) + "Z"
+    # Normalize to north-at-top (row 0 = +90°). encode.py maps image row 0 to
+    # +90°, so a source that publishes latitude ascending (south-to-north, e.g.
+    # GEM/GDPS) would otherwise render vertically flipped. No-op for GFS/ECMWF,
+    # which are already descending.
+    if lat is not None and lat[0] < lat[-1]:
+        lat = lat[::-1]
+        arrays = [a[::-1, :] for a in arrays]
+
     return DecodedField(
         kind=kind, arrays=arrays, lat=lat, lon=lon,
         run_time=run_time, valid_time=valid_time,

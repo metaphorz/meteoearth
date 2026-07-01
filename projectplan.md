@@ -406,3 +406,18 @@ red > 1013), so a weak low with a central pressure above 1013 hPa rendered as a
       (the recognized semi-permanent center), **Weddell Sea Low**, **South Indian
       Ocean Low**, **Ross Sea Low** (wraps the dateline). Sector logic checked in
       node against sample coords.
+
+## Phase 14 — Fix GEM upside-down bug (latitude orientation)
+Cross-checking the Icelandic Low across models exposed a real bug: GEM placed a
+phantom **966 hPa** low SE of Iceland while GFS/ICON/ECMWF agreed on ~995 hPa at
+34°W. Root cause: **GEM/GDPS publishes latitude ascending (−90→+90)** whereas
+GFS/ECMWF/ICON are descending (+90→−90). `encode.py` maps image row 0 to +90°,
+so the entire GEM globe (every variable) rendered **vertically flipped** — the
+real 65°N low mirrored to 65°S, and a deep Southern-Ocean winter low (~966 hPa)
+mirrored up to appear "SE of Iceland."
+- [x] 14.1 `decode.py`: normalize any ascending-lat source to north-at-top (flip
+      arrays + reverse lat). No-op for GFS/ECMWF (already descending); ICON has
+      its own descending grid.
+- [x] 14.2 Verified: GEM MSLP now reads 995.1 hPa @ 65.7°N/32.7°W, matching
+      GFS/ICON and Ventusky (Icelandic Low + the low W of N. Scotland agree
+      across all 4 models). Rebuilt the full GEM dataset (all vars were flipped).
