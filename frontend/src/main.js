@@ -11,14 +11,19 @@ const ALL_VARS = [
 const LAND_GEOJSON =
   "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_110m_land.geojson";
 
-// Pressure-center glyph colors: blue lows, red highs, switching near the
-// 1013 hPa standard. Keyed on the central pressure value of each H/L feature.
-const HIGHLOW_PALETTE = [
-  [940,  [80, 150, 255]],
-  [1012, [110, 170, 255]],
-  [1014, [255, 130, 100]],
-  [1060, [255, 70, 55]],
-];
+// Pressure-center glyph styling. Color follows the *type* — blue for lows, red
+// for highs — so a weak low whose central pressure is above 1013 hPa still reads
+// blue (coloring by raw value would paint it red). Opacity grows with the
+// system's strength (deviation from the 1013 hPa standard): deep lows and strong
+// highs render solid, weak centers near 1013 hPa fade to semi-transparent.
+const HL_LOW  = [95, 165, 255];
+const HL_HIGH = [255, 85, 65];
+function highLowColor(f) {
+  const dev = Math.abs(f.properties.value - 1013);      // hPa from standard
+  const alpha = Math.max(70, Math.min(255, Math.round(70 + (dev / 30) * 185)));
+  const [r, g, b] = f.properties.type === "L" ? HL_LOW : HL_HIGH;
+  return [r, g, b, alpha];
+}
 
 const status     = document.getElementById("status");
 const badge      = document.getElementById("hover-badge");
@@ -403,13 +408,23 @@ function buildLayers(data, land, s, state) {
       imageUnscale: m.meta.imageUnscale,
       bounds: m.meta.bounds,
       radius: 1500,                 // km — keep to the major synoptic centers
-      palette: HIGHLOW_PALETTE,
       textSize: 24,
       textOutlineWidth: 2,
-      textOutlineColor: [8, 12, 20, 255],
+      textOutlineColor: [8, 12, 20, 200],
       pickable: true,
       parameters: { depthCompare: "always" },
       getPolygonOffset: () => [0, -2000],
+      // Color the L/H letter and its pressure value by type + strength. The
+      // library colors by raw pressure value; override both inner text sublayers
+      // (nested through the "composite" wrapper) to color by type instead.
+      _subLayerProps: {
+        composite: {
+          _subLayerProps: {
+            type:  { getColor: highLowColor },
+            value: { getColor: highLowColor },
+          },
+        },
+      },
     }));
   }
 

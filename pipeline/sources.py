@@ -5,19 +5,23 @@ Sources (all global, so they fill the whole globe):
   - gfs    NOAA GFS 0.5°   via NOMADS filter endpoint
   - ecmwf  ECMWF IFS 0.25° via the ecmwf-opendata client
   - gem    ECCC GDPS 0.15° via the MSC hpfx file server
+  - icon   DWD ICON 0.25°  via opendata.dwd.de (icosahedral grid, regridded)
 
 Not every source provides every canonical variable (see SPECS per source).
 """
 
 from __future__ import annotations
 
+import bz2
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
 import time
 
+import numpy as np
 import requests
+import xarray as xr
 
 from decode import DecodedField, decode_grib
 
@@ -220,7 +224,160 @@ class GEMSource:
         return decode_grib(pairs, kind, transform, self._FILTER)
 
 
-SOURCES = {s.id: s for s in (GFSSource, ECMWFSource, GEMSource)}
+# --------------------------------------------------------------------------- #
+#  ICON global  (DWD)                                                          #
+# --------------------------------------------------------------------------- #
+
+# ICON global publishes on an icosahedral (unstructured) grid — ~2.95M cells,
+# not a lat-lon raster. We fetch the cell-center coordinates (CLAT/CLON, which
+# are time-invariant) once per cycle, build a nearest-neighbor KD-tree in 3D
+# unit-vector space (robust across the dateline and poles), and resample every
+# field onto our standard 0.25° lat-lon grid. The grid mapping is identical for
+# every variable and step, so it is built once and reused.
+
+# Target raster: lat 90 -> -90, lon 0 -> 359.75 (matches encode's [0,360) roll).
+_ICON_LAT = np.arange(90.0, -90.001, -0.25)    # 721 rows, north -> south
+_ICON_LON = np.arange(0.0, 360.0, 0.25)        # 1440 cols, [0, 360)
+
+
+def _latlon_to_xyz(lat_deg, lon_deg):
+    """Unit vectors on the sphere — lets a KD-tree ignore the lon seam/poles."""
+    la, lo = np.radians(lat_deg), np.radians(lon_deg)
+    cl = np.cos(la)
+    return np.stack([cl * np.cos(lo), cl * np.sin(lo), np.sin(la)], axis=-1)
+
+
+def _fetch_bz2_grib(url: str, timeout: int = 120, retries: int = 3) -> bytes:
+    """GET a .bz2-wrapped GRIB body, decompress, retry transient failures."""
+    last = ""
+    for attempt in range(retries):
+        try:
+            r = requests.get(url, timeout=timeout)
+            if r.status_code == 200:
+                data = bz2.decompress(r.content)
+                if data[:4] == b"GRIB":
+                    return data
+                last = f"decompressed head {data[:12]!r}"
+            else:
+                last = f"HTTP {r.status_code}"
+        except (requests.RequestException, OSError) as e:
+            last = repr(e)[:120]
+        time.sleep(2 * (attempt + 1))
+    raise RuntimeError(f"ICON GET failed after {retries} tries ({last}): {url}")
+
+
+def _icon_sole_values(path: Path) -> np.ndarray:
+    ds = xr.open_dataset(path, engine="cfgrib", backend_kwargs={"indexpath": ""})
+    keys = list(ds.data_vars)
+    if len(keys) != 1:
+        raise ValueError(f"{path}: expected 1 data var, got {keys}")
+    return ds[keys[0]].values
+
+
+class ICONSource:
+    id = "icon"
+    label = "DWD ICON"
+    resolution_deg = 0.25           # delivered grid (native ~0.13° icosahedral)
+    forecast_hours = FORECAST_HOURS
+    _HOST = "https://opendata.dwd.de/weather/nwp/icon/grib"
+
+    # canonical -> (level_kind, level, [(dir, VAR_UPPER) per component])
+    SPECS: dict[str, tuple[str, Optional[int], list[tuple[str, str]]]] = {
+        "wind_10m":    ("single",   None, [("u_10m", "U_10M"), ("v_10m", "V_10M")]),
+        "wind_250mb":  ("pressure", 250,  [("u", "U"), ("v", "V")]),
+        "tmp_2m":      ("single",   None, [("t_2m", "T_2M")]),
+        "rh_2m":       ("single",   None, [("relhum_2m", "RELHUM_2M")]),
+        "mslp":        ("single",   None, [("pmsl", "PMSL")]),
+        "cloud_cover": ("single",   None, [("clct", "CLCT")]),
+        "pwat":        ("single",   None, [("tqv", "TQV")]),
+        "gust":        ("single",   None, [("vmax_10m", "VMAX_10M")]),
+        "cape":        ("single",   None, [("cape_ml", "CAPE_ML")]),
+    }
+
+    def __init__(self):
+        self._cycle: Optional[datetime] = None
+        self._idx: Optional[np.ndarray] = None   # target-grid -> source cell index
+
+    def supported(self) -> list[str]:
+        return list(self.SPECS)
+
+    def candidate_cycles(self) -> list[datetime]:
+        now = datetime.now(timezone.utc)
+        base = now.replace(hour=(now.hour // 6) * 6, minute=0, second=0, microsecond=0)
+        return [base - timedelta(hours=6 * i) for i in range(4)]   # 00/06/12/18
+
+    def _comp_url(self, canon: str, cycle: datetime, fhr: int, d: str, up: str) -> str:
+        ymdh, hh = cycle.strftime("%Y%m%d%H"), cycle.strftime("%H")
+        kind, level, _ = self.SPECS[canon]
+        if kind == "pressure":
+            fn = f"icon_global_icosahedral_pressure-level_{ymdh}_{fhr:03d}_{level}_{up}.grib2.bz2"
+        else:
+            fn = f"icon_global_icosahedral_single-level_{ymdh}_{fhr:03d}_{up}.grib2.bz2"
+        return f"{self._HOST}/{hh}/{d}/{fn}"
+
+    def _invariant_url(self, cycle: datetime, name: str) -> str:
+        ymdh, hh = cycle.strftime("%Y%m%d%H"), cycle.strftime("%H")
+        fn = f"icon_global_icosahedral_time-invariant_{ymdh}_{name}.grib2.bz2"
+        return f"{self._HOST}/{hh}/{name.lower()}/{fn}"
+
+    def cycle_available(self, cycle: datetime) -> bool:
+        # A cycle is usable only if its last forecast step is published.
+        url = self._comp_url("mslp", cycle, max(self.forecast_hours), "pmsl", "PMSL")
+        try:
+            return requests.head(url, timeout=30).status_code == 200
+        except requests.RequestException:
+            return False
+
+    def fetch(self, canon: str, cycle: datetime, fhr: int, raw: Path) -> list[Path]:
+        self._cycle = cycle
+        _, _, comps = self.SPECS[canon]
+        out: list[Path] = []
+        for i, (d, up) in enumerate(comps):
+            dest = raw / f"{canon}.f{fhr:03d}.{i}.grib2"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(_fetch_bz2_grib(self._comp_url(canon, cycle, fhr, d, up)))
+            out.append(dest)
+        return out
+
+    def _ensure_grid(self, raw: Path) -> None:
+        """Build the icosahedral -> lat-lon nearest-neighbor mapping once."""
+        if self._idx is not None:
+            return
+        from scipy.spatial import cKDTree
+        coords = {}
+        for name in ("CLAT", "CLON"):
+            p = raw / f"{name.lower()}.grib2"
+            p.write_bytes(_fetch_bz2_grib(self._invariant_url(self._cycle, name)))
+            coords[name] = _icon_sole_values(p).astype(np.float64)
+        clat, clon = coords["CLAT"], coords["CLON"]
+        if np.nanmax(np.abs(clat)) <= np.pi + 1e-3:     # radians -> degrees
+            clat, clon = np.degrees(clat), np.degrees(clon)
+        tree = cKDTree(_latlon_to_xyz(clat, clon))
+        LON, LAT = np.meshgrid(_ICON_LON, _ICON_LAT)
+        _, self._idx = tree.query(_latlon_to_xyz(LAT.ravel(), LON.ravel()), k=1)
+
+    def decode(self, canon: str, fhr: int, raw: Path, transform, kind: str) -> DecodedField:
+        self._ensure_grid(raw)
+        _, _, comps = self.SPECS[canon]
+        arrays: list[np.ndarray] = []
+        run_time = valid_time = None
+        for i in range(len(comps)):
+            f = raw / f"{canon}.f{fhr:03d}.{i}.grib2"
+            ds = xr.open_dataset(f, engine="cfgrib", backend_kwargs={"indexpath": ""})
+            (key,) = list(ds.data_vars)
+            vals = ds[key].values.astype(np.float32)
+            a = vals[self._idx].reshape(_ICON_LAT.size, _ICON_LON.size)
+            if transform is not None:
+                a = transform(a)
+            arrays.append(a)
+            if run_time is None:
+                run_time = str(np.datetime_as_string(ds["time"].values, unit="s")) + "Z"
+                valid_time = str(np.datetime_as_string(ds["valid_time"].values, unit="s")) + "Z"
+        return DecodedField(kind=kind, arrays=arrays, lat=_ICON_LAT, lon=_ICON_LON,
+                            run_time=run_time, valid_time=valid_time)
+
+
+SOURCES = {s.id: s for s in (GFSSource, ECMWFSource, GEMSource, ICONSource)}
 
 
 def make_source(sid: str):

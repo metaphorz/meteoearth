@@ -319,3 +319,74 @@ Note on Ventusky's sources: Ventusky does pull from **many providers**, not one
 quality (e.g. CAMS), and user-contributed webcams. meteoearth today is
 single-source (NOAA GFS via NOMADS). Matching radar/satellite/AQ means wiring up
 those separate feeds, not just more GFS variables.
+
+---
+
+# Phase 11 — Add DWD ICON (4th global model) + Icelandic-Low validation
+
+Motivation: Ventusky offers ICON, GEM, ECMWF, GFS as global models; we had the
+last three. User also flagged our H/L overlay placing the **Icelandic Low**
+poorly vs. reference software (Windy/Ventusky 2026-07-01 showed an Icelandic Low
+~995.6 hPa / 29.4 inHg between Greenland and Iceland, plus a 2nd low to the SE;
+GFS and ICON "practically identical" in the reference).
+
+ICON global is on an **icosahedral** grid (~2.95M cells), not a lat-lon raster —
+the item Phase 10 deferred as "hard." Solved with a dependency-light regrid:
+fetch the time-invariant CLAT/CLON cell-center coords once per cycle, build a 3D
+unit-vector KD-tree (scipy), nearest-neighbor onto our standard 0.25° grid. The
+mapping is identical for every var/step, so it's built once and reused.
+
+- [x] 11.0 Verified DWD open-data layout + CLAT/CLON availability; chose
+      nearest-neighbor (scipy KDTree) over CDO (user decision).
+- [x] 11.1 `icon_regrid_probe.py`: proved the regrid — ICON MSLP minimum in the
+      N-Atlantic box = **995.5 hPa at 64.5°N, 34°W**, matching the reference
+      Icelandic Low (995.6 hPa) almost exactly.
+- [x] 11.2 `sources.py`: `ICONSource` (bz2 fetch, KD-tree regrid, decode) +
+      registered in `SOURCES`; `scipy` added to `requirements.txt`.
+- [x] 11.3 Full local build: 8 vars × 17 steps. ICON provides wind_10m,
+      wind_250mb, tmp_2m, rh_2m, mslp, cloud_cover, pwat, cape. Not provided:
+      `gust` (VMAX_10M is a max-over-interval, 404 at f000) and `prate` (no
+      instantaneous rate) — greyed out per the existing per-model manifest.
+- [x] 11.4 `index.json` now lists gfs/ecmwf/gem/**icon**; frontend model
+      selector is data-driven, so ICON appears with no frontend code change.
+- [x] 11.5 CI `deploy.yml`: added `scipy` to the micromamba env so the 12h
+      deploy rebuilds all **4** models.
+- [x] 11.6 In-browser verification (`compare_icelandic_low.py`, matched 12Z
+      cycle): all 4 model buttons render; ICON greys out gust/precip. The
+      Icelandic-Low **L** lands between Greenland and Iceland for both models —
+      GFS 994.8 hPa @ 65.1N/33.5W, ICON 995.4 hPa @ 64.5N/34.0W — matching the
+      reference 995.6 hPa. Screenshots: `tests/auto/icelandic-{gfs,icon}.png`.
+- [x] 11.7 No detection/radius tuning needed — the original "poor Icelandic-Low
+      location" was **stale local data** (a June-28 cycle); a fresh cycle places
+      the L correctly for every model.
+- [x] 11.8 CI `timeout-minutes` 30 → 45 (4 models fetch in ~20-25 min).
+
+## Phase 12 — H/L glyph color-by-type + strength opacity (user request)
+The `HighLowLayer` colored the L/H letters by *raw pressure value* (blue < 1013,
+red > 1013), so a weak low with a central pressure above 1013 hPa rendered as a
+**red L** — wrong. User also wanted dominant systems emphasized.
+- [x] 12.1 Color by **type** (blue L, red H), not value — fixes the red-L. The
+      library's `getColor` is hardcoded to the value palette, so override the two
+      inner text sublayers ("type"/"value") via nested `_subLayerProps` (through
+      the "composite" wrapper) with a per-feature color keyed on `properties.type`.
+- [x] 12.2 **Opacity by strength**: alpha scales with |value − 1013| — deep lows
+      / strong highs solid, weak centers near 1013 hPa fade to ~alpha 70. Softened
+      the text outline to alpha 200.
+- [x] 12.3 Verified in-browser (`highlow_opacity_check.py`): all L blue / all H
+      red, prominence tracks strength, no console errors. `highlow-opacity.png`.
+
+### Review — Phases 11 & 12
+- **ICON added** as the 4th global model (`pipeline/sources.py::ICONSource`):
+  bz2 fetch from opendata.dwd.de, a one-time CLAT/CLON KD-tree (3D unit vectors,
+  scipy) nearest-neighbor regrid of the icosahedral grid (~2.95M cells) onto our
+  0.25° raster, reused for every var/step. `scipy` added to `requirements.txt`
+  and the CI env; CI now rebuilds 4 models each 12h (timeout 45 min). No frontend
+  change — the model selector is data-driven off `index.json` (ICON = 8 vars;
+  gust/precip greyed).
+- **Icelandic Low** was never a bug: with a fresh cycle the L sits correctly
+  between Greenland and Iceland for GFS and ICON (near-identical), matching the
+  Windy/Ventusky reference.
+- **H/L glyphs** now color by type (blue L / red H) with opacity by strength
+  (`frontend/src/main.js`), fixing red-Ls and emphasizing dominant systems.
+- Diagnostics in `tests/auto/`: `icon_regrid_probe.py`,
+  `compare_icelandic_low.py`, `highlow_opacity_check.py`.

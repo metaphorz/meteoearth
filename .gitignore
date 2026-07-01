@@ -14,6 +14,9 @@ data/
 tests/auto/*.png
 tests/auto/*.log
 
+# ICON regrid-probe scratch (decompressed GRIB, regenerable)
+tests/auto/icon_probe/
+
 # LaTeX build artifacts (keep manual.tex, manual.pdf, figures/)
 docs/*.aux
 docs/*.log
