@@ -390,3 +390,13 @@ red > 1013), so a weak low with a central pressure above 1013 hPa rendered as a
   (`frontend/src/main.js`), fixing red-Ls and emphasizing dominant systems.
 - Diagnostics in `tests/auto/`: `icon_regrid_probe.py`,
   `compare_icelandic_low.py`, `highlow_opacity_check.py`.
+
+## Phase 13 — Name climatological systems in the H/L hover tooltip
+- [x] 13.1 `frontend/src/main.js`: `NAMED_SYSTEMS` table (climatological "centers
+      of action") + `namedSystem(type, lat, lng)` lookup (inclusive lat/lng boxes;
+      an lng box with min>max wraps the ±180° seam, e.g. the Aleutian Low). Covers
+      Icelandic/Aleutian/Southern-Ocean/monsoon/heat lows and Azores–Bermuda /
+      N-Pacific / Siberian / Greenland / S-Atlantic / S-Pacific / Mascarene highs.
+- [x] 13.2 The H/L hover badge prepends the system name when the glyph falls in a
+      named region. Verified with `tests/auto/verify_named_tooltip.py` (PASS —
+      badge reads "Icelandic Low").

@@ -25,6 +25,36 @@ function highLowColor(f) {
   return [r, g, b, alpha];
 }
 
+// Climatological "centers of action": name a hovered H/L glyph when it sits in
+// one of these regions. lat/lng are inclusive boxes in degrees; an lng box whose
+// min > max wraps the ±180° seam (e.g. the Aleutian Low). Naming is by location
+// + type only — a persistent feature's name doesn't depend on the exact cycle.
+const NAMED_SYSTEMS = [
+  // Lows
+  { type: "L", name: "Icelandic Low",             lat: [55, 72],   lng: [-45, 0] },
+  { type: "L", name: "Aleutian Low",              lat: [45, 62],   lng: [160, -150] },
+  { type: "L", name: "South Asian (Monsoon) Low", lat: [18, 35],   lng: [58, 82] },
+  { type: "L", name: "Sonoran (SW-US) Heat Low",  lat: [28, 40],   lng: [-118, -105] },
+  { type: "L", name: "Southern Ocean Low",        lat: [-72, -52], lng: [-180, 180] },
+  // Highs
+  { type: "H", name: "Azores–Bermuda High",       lat: [22, 42],   lng: [-70, -8] },
+  { type: "H", name: "North Pacific High",        lat: [25, 45],   lng: [-160, -120] },
+  { type: "H", name: "Siberian High",             lat: [40, 62],   lng: [78, 120] },
+  { type: "H", name: "Greenland High",            lat: [68, 84],   lng: [-55, -18] },
+  { type: "H", name: "South Atlantic High",       lat: [-42, -18], lng: [-35, 12] },
+  { type: "H", name: "South Pacific High",        lat: [-42, -18], lng: [-120, -75] },
+  { type: "H", name: "Mascarene (S. Indian) High", lat: [-40, -22], lng: [48, 95] },
+];
+function namedSystem(type, lat, lng) {
+  for (const s of NAMED_SYSTEMS) {
+    if (s.type !== type || lat < s.lat[0] || lat > s.lat[1]) continue;
+    const [a, b] = s.lng;
+    const inLng = a <= b ? (lng >= a && lng <= b) : (lng >= a || lng <= b);
+    if (inLng) return s.name;
+  }
+  return null;
+}
+
 const status     = document.getElementById("status");
 const badge      = document.getElementById("hover-badge");
 const pinPanel   = document.getElementById("pin-panel");
@@ -310,7 +340,9 @@ function onDeckHover(info, data, settings) {
   if (hl && (hl.type === "L" || hl.type === "H")) {
     const [glng, glat] = info.object.geometry.coordinates;
     const kind = hl.type === "L" ? "Low-pressure system" : "High-pressure system";
+    const name = namedSystem(hl.type, glat, glng);
     badge.textContent =
+      (name ? `${name}\n` : "") +
       `${kind}\n` +
       `Central pressure  ${Math.round(hl.value)} hPa\n` +
       `${Math.abs(glat).toFixed(1)}° ${glat >= 0 ? "N" : "S"}, ` +
